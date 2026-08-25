@@ -40,3 +40,8 @@ export function formatClock(ts: number): string {
     minute: '2-digit',
   });
 }
+
+export function formatDistance(km: number): string {
+  return `${km.toFixed(2)} km`;
+}
+
