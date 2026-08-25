@@ -33,24 +33,25 @@ const gridStyle = {
 - **No Tile Engine**: No OpenStreetMap tile layer (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) or CartoDB Dark Matter tile layer is fetched.
 - **Static Coordinate Projection**: GPS coordinates are linearly mapped into a percentage bounding box (`toX`, `toY`) and drawn on an SVG polyline on top of the dark CSS grid.
 - **Misleading Label**: The UI shows `<Text>OpenStreetMap preview</Text>`, but no network requests or tile layers exist.
+- **Wrong Default Location**: Defaults to Berlin (`52.52, 13.405`) instead of **Kraków** (`50.0647, 19.9450`).
 - **Native Discrepancy**: While `RouteMap.native.tsx` uses `react-native-maps`, on Web (often used for development, preview, and web builds), the user only sees an empty grid.
 
 ### 2.2 Proposed Solution & Architecture
 
-#### Strategy A: Leaflet / OpenStreetMap Integration for Web (Recommended)
-Embed an interactive OpenStreetMap view using **Leaflet** with CartoDB Dark Matter / Stadia Dark tiles (to preserve the app's dark aesthetic `#0F172A`).
+#### Strategy A: Standard OpenStreetMap Integration for Web
+Embed an interactive OpenStreetMap view using **Leaflet** with standard colorful OpenStreetMap tiles (`https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`), with Kraków (`50.0647, 19.9450`) as the default center.
 
 1. **Web Implementation (`src/components/RouteMap.web.tsx`)**:
-   - Use an HTML `iframe` / Leaflet bundle or `react-leaflet` / OpenLayers / MapLibre to render real tile layers.
-   - For pure React Native Web compatibility without heavy native bridges, use standard Leaflet JS loaded dynamically or via a dedicated Leaflet Web component.
-   - Configure OpenStreetMap / CartoDB Dark Matter tiles:
-     `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png`
+   - Use standard Leaflet JS loaded via an interactive HTML container/DOM iframe.
+   - Configure Standard OpenStreetMap tiles:
+     `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png` with attribution `© OpenStreetMap contributors`.
+   - Default map center: **Kraków, Poland** (`lat: 50.0647, lon: 19.9450`).
    - Dynamically pan and zoom (`fitBounds`) as new GPS track points arrive.
    - Draw an SVG/Leaflet `Polyline` with `#84CC16` (theme accent) and 4px width.
 
 2. **Native Implementation Polish (`src/components/RouteMap.native.tsx`)**:
-   - Ensure standard Google Maps / Apple Maps tiles render properly with custom dark JSON styling.
-   - Handle permissions and fallback gracefully if Google Play Services are unavailable.
+   - Set default region coordinates to **Kraków, Poland** (`lat: 50.0647, lon: 19.9450`).
+   - Ensure standard Google Maps / Apple Maps tiles render properly with user location and route polyline.
 
 ```
 +-------------------------------------------------------------+
