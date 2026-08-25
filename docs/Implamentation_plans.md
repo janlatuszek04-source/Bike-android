@@ -296,11 +296,144 @@ Bike-android/
 ## 6. Verification and Validation Checklist
 
 - [x] **Web Map Tiles**: Opening `http://localhost:8081` on Web displays genuine map streets and terrain (Standard OSM) instead of an empty black grid. Default center is set to Kraków (50.0647, 19.9450).
-- [ ] **Active Tracking Marker**: A clear pulsing marker labeled `"Current Location"` is visible and tracks simulated/real GPS points smoothly.
-- [ ] **Start & Finish Pins**: Completed rides show a green `"Start"` badge at origin and a checkered `"Finish"` badge at destination.
+- [x] **Active Tracking Marker**: A clear pulsing marker labeled `"📍 Current Location"` is visible with animated radar rings and tracks simulated/real GPS points smoothly.
+- [x] **Start & Finish Pins**: Completed rides show a green `"🚩 START"` badge at origin and a checkered `"🏁 FINISH"` badge at destination.
 - [ ] **Speed vs Distance Graph**:
   - X-axis clearly displays distance in kilometers (`0 km`, `1.5 km`, `3.0 km`...).
   - Text labels do not overlap or collide.
   - Data points are smoothly curved and downsampled.
   - Tapping or scrubbing shows exact telemetry at that distance.
 - [ ] **Visual Layout**: Graph is housed in a clean, dedicated card with metric toggle controls and proper padding.
+
+---
+
+## 7. Granular Step-by-Step Implementation & Git Commit Roadmap
+
+Every step below represents an isolated, logically scoped, and individually testable atomic unit of work suitable for a single Git commit.
+
+```
+Commit 1 (Done) ──► Commit 2 (Done) ──► Commit 3 (Telemetry Utils) ──► Commit 4 (Dual-Mode Chart) ──► Commit 5 (Interactive Tooltip) ──► Commit 6 (Card Layout Redesign) ──► Commit 7 (Docs & Cleanup)
+```
+
+---
+
+### Step 1: OpenStreetMap Leaflet Integration & Kraków Center
+- **Git Commit Message**: `feat(map): integrate OpenStreetMap Leaflet engine and set Krakow as default center`
+- **Status**: `[COMPLETED]`
+- **Target Files**:
+  - `src/components/RouteMap.web.tsx`
+  - `src/components/RouteMap.native.tsx`
+  - `src/utils/mockLocation.ts`
+- **Scope of Changes**:
+  - Replaced the static CSS linear-gradient mock with dynamic Leaflet JS + OpenStreetMap tile layer (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`).
+  - Changed fallback and mock GPS base coordinates from Berlin (`52.52, 13.405`) to Kraków (`50.0647, 19.9450`).
+  - Added `ResizeObserver` for dynamic container resizing and auto-panning during live GPS stream.
+- **Validation Criteria**:
+  - Web map renders genuine OpenStreetMap tiles centered on Kraków.
+  - Zoom controls and map panning function seamlessly without crashes.
+
+---
+
+### Step 2: Pulsing Radar Marker & Start/Finish Flag Badges
+- **Git Commit Message**: `feat(map): add radar pulse to live location marker and start/finish flags`
+- **Status**: `[COMPLETED]`
+- **Target Files**:
+  - `src/components/RouteMap.web.tsx`
+  - `src/components/RouteMap.native.tsx`
+  - `app/(tabs)/index.tsx`
+- **Scope of Changes**:
+  - Injected CSS `@keyframes live-radar-pulse` creating an animated pulsing ring around the live location marker.
+  - Added `"📍 Current Location"` high-contrast floating pill badge.
+  - Created `"🚩 START"` (green) and `"🏁 FINISH"` (dark/red) pin markers for completed ride overview maps.
+  - Updated live recording status text in `app/(tabs)/index.tsx` to `"Kraków GPS Preview · Tap START to record"`.
+- **Validation Criteria**:
+  - Live recorder displays an unambiguous, labeled pulsing dot at user's current GPS position.
+  - Ride details screen displays distinct Start and Finish markers at track endpoints.
+
+---
+
+### Step 3: Telemetry Distance Calculation & Data Downsampler Utility
+- **Git Commit Message**: `feat(telemetry): add Haversine distance calculator and chart data downsampling utility`
+- **Status**: `[PENDING]`
+- **Target Files**:
+  - `src/utils/telemetry.ts` (new file)
+  - `src/utils/geo.ts`
+- **Scope of Changes**:
+  - Create `src/utils/telemetry.ts` with:
+    - `computeCumulativeDistance(track: TrackPoint[])`: Calculates running cumulative distance in kilometers using the Haversine formula.
+    - `downsampleTelemetrySeries(data, targetCount = 30)`: Compresses 500–1000+ raw GPS coordinates into 25–35 evenly distributed points.
+    - `smoothSpeedValues(points, windowSize = 3)`: Applies a moving average smoothing filter to remove GPS jitter.
+    - `generateAxisStrideLabels(points, mode)`: Generates spaced step labels (e.g. `"0.0 km"`, `""`, `"1.0 km"` / `"00:00"`, `""`, `"05:00"`) preventing label overlap.
+- **Validation Criteria**:
+  - Feeding a 900-point GPS dataset into `buildSpeedDistanceSeries` outputs exactly ~30 data points with readable, non-colliding labels.
+
+---
+
+### Step 4: Dual-Mode Telemetry Toggle & GiftedCharts Formatting
+- **Git Commit Message**: `feat(charts): implement dual-mode telemetry toggle and responsive LineChart configuration`
+- **Status**: `[PENDING]`
+- **Target Files**:
+  - `app/ride/[id].tsx`
+- **Scope of Changes**:
+  - Add state `[chartMetric, setChartMetric] = useState<'distance' | 'time'>('distance')` to toggle between **Speed vs Distance** (`km`) and **Speed vs Time** (`mm:ss`).
+  - Wire up `buildSpeedDistanceSeries` and `buildSpeedTimeSeries` from `src/utils/telemetry.ts`.
+  - Configure `react-native-gifted-charts` props:
+    - Dynamic `maxValue` (rounded to next multiple of 10) and `noOfSections={4}`.
+    - Explicit `yAxisLabelSuffix=" km/h"`, `yAxisTextStyle`, and `xAxisLabelTextStyle`.
+    - Spacing configuration to fit exact container width.
+- **Validation Criteria**:
+  - X-axis displays clean distance markers (`0.0 km`, `1.0 km`, `2.0 km`...).
+  - Tapping toggle button instantly swaps the X-axis between distance and time with zero text overlap.
+
+---
+
+### Step 5: Interactive Pointer Scrubbing & Tooltip Popups
+- **Git Commit Message**: `feat(charts): add interactive touch scrubbing and tooltip popup to speed graph`
+- **Status**: `[PENDING]`
+- **Target Files**:
+  - `app/ride/[id].tsx`
+  - `src/theme.ts`
+- **Scope of Changes**:
+  - Add `pointerConfig` to `LineChart` in `app/ride/[id].tsx` to enable touch / drag scrubbing.
+  - Implement a customized tooltip component displaying:
+    - Instantaneous Speed (`XX.X km/h`)
+    - Distance at point (`X.XX km`) or Timestamp (`MM:SS`)
+  - Render a vertical cursor strip with accent dot highlighting the touched point.
+- **Validation Criteria**:
+  - Touching/dragging anywhere across the graph displays a floating card with exact numerical speed and distance values.
+
+---
+
+### Step 6: Telemetry Card Hierarchy & Screen Layout Redesign
+- **Git Commit Message**: `refactor(ui): redesign Ride Detail screen layout and telemetry card hierarchy`
+- **Status**: `[PENDING]`
+- **Target Files**:
+  - `app/ride/[id].tsx`
+- **Scope of Changes**:
+  - Restructure the Ride Detail screen hierarchy:
+    1. **Top Bar**: Date, Start/End timestamps, Back navigation.
+    2. **Hero Route Map**: 240px Leaflet map with Start/Finish pins.
+    3. **Key Metrics Grid**: 4 summary cards (Distance, Moving Time, Avg Speed, Peak Speed).
+    4. **Telemetry Analysis Card**:
+       - Card Header with Title and Mode Switcher Segmented Control (`[ Speed vs Distance ]` / `[ Speed vs Time ]`).
+       - Sub-header badges showing reference lines (Average speed line, Max speed pill).
+       - Full-width responsive interactive LineChart.
+    5. **Detailed Splits & Breakdown Card**: Chronological stats list.
+  - Add responsive padding and border styling matching the dark neon theme.
+- **Validation Criteria**:
+  - Layout flows logically on both mobile screens and desktop/web browsers with zero visual clutter.
+
+---
+
+### Step 7: Documentation Finalization & Final Verification
+- **Git Commit Message**: `docs: finalize implementation documentation and verification checklist`
+- **Status**: `[PENDING]`
+- **Target Files**:
+  - `docs/Implamentation_plans.md`
+- **Scope of Changes**:
+  - Verify all 3 problems against the verification checklist.
+  - Update all checklist boxes to `[x]`.
+  - Document final architecture and verify zero TypeScript or runtime errors.
+- **Validation Criteria**:
+  - All automated lint/typecheck steps pass (`npm run lint`, `npm run typecheck`).
+
