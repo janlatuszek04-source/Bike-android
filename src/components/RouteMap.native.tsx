@@ -31,7 +31,7 @@ export function RouteMap(props: CommonProps) {
           latitudeDelta: deltaFor(props.route),
           longitudeDelta: deltaFor(props.route),
         }
-      : { latitude: 52.52, longitude: 13.405, latitudeDelta: 0.02, longitudeDelta: 0.02 });
+      : { latitude: 50.0647, longitude: 19.9450, latitudeDelta: 0.02, longitudeDelta: 0.02 });
 
   return (
     <MapView

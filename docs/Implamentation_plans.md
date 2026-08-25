@@ -295,7 +295,7 @@ Bike-android/
 
 ## 6. Verification and Validation Checklist
 
-- [ ] **Web Map Tiles**: Opening `http://localhost:8081` on Web displays genuine map streets and terrain (CartoDB Dark / OSM) instead of an empty black grid.
+- [x] **Web Map Tiles**: Opening `http://localhost:8081` on Web displays genuine map streets and terrain (Standard OSM) instead of an empty black grid. Default center is set to Kraków (50.0647, 19.9450).
 - [ ] **Active Tracking Marker**: A clear pulsing marker labeled `"Current Location"` is visible and tracks simulated/real GPS points smoothly.
 - [ ] **Start & Finish Pins**: Completed rides show a green `"Start"` badge at origin and a checkered `"Finish"` badge at destination.
 - [ ] **Speed vs Distance Graph**:

@@ -11,7 +11,7 @@ type MockSubscriber = (loc: {
   speed: number | null;
 }) => void;
 
-const MOCK_BASE = { latitude: 52.52, longitude: 13.405 };
+const MOCK_BASE = { latitude: 50.0647, longitude: 19.9450 };
 
 export function createMockLocationWatcher(onPoint: MockSubscriber): MockFn {
   let active = true;

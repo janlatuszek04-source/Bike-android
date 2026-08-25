@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import type { LatLng } from '../types';
 import { theme } from '../theme';
 
@@ -9,115 +10,239 @@ type CommonProps = {
   showUserDot?: boolean;
 };
 
-function deltaFor(route: LatLng[]): number {
-  if (route.length === 0) return 0.02;
-  const lats = route.map((p) => p.latitude);
-  const lons = route.map((p) => p.longitude);
-  const latD = Math.max(...lats) - Math.min(...lats);
-  const lonD = Math.max(...lons) - Math.min(...lons);
-  return Math.max(latD, lonD, 0.005) * 1.6;
+const KRAKOW_DEFAULT: LatLng = { latitude: 50.0647, longitude: 19.9450 };
+
+declare global {
+  interface Window {
+    L?: any;
+  }
 }
 
-const gridStyle = {
-  backgroundColor: theme.mapTile,
-  backgroundImage:
-    'linear-gradient(rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.08) 1px, transparent 1px)',
-  backgroundSize: '32px 32px',
-};
+function loadLeaflet(onLoad: () => void) {
+  if (typeof window === 'undefined') return;
+  if (window.L) {
+    onLoad();
+    return;
+  }
+
+  if (!document.getElementById('leaflet-css')) {
+    const link = document.createElement('link');
+    link.id = 'leaflet-css';
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+  }
+
+  let script = document.getElementById('leaflet-js') as HTMLScriptElement | null;
+  if (!script) {
+    script = document.createElement('script');
+    script.id = 'leaflet-js';
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.async = true;
+    script.onload = () => onLoad();
+    document.head.appendChild(script);
+  } else {
+    script.addEventListener('load', () => onLoad());
+  }
+}
 
 export function RouteMap(props: CommonProps) {
+  const containerRef = useRef<any>(null);
+  const mapRef = useRef<any>(null);
+  const polylineRef = useRef<any>(null);
+  const userMarkerRef = useRef<any>(null);
+  const [leafletReady, setLeafletReady] = useState(false);
+  const [mapInitialized, setMapInitialized] = useState(false);
+  const hasFittedBoundsRef = useRef(false);
+
+  useEffect(() => {
+    loadLeaflet(() => {
+      setLeafletReady(true);
+    });
+  }, []);
+
   const route = props.route;
-  const region =
-    props.initialRegion ??
-    (route.length > 0
-      ? {
-          latitude: route[route.length - 1].latitude,
-          longitude: route[route.length - 1].longitude,
-          latitudeDelta: deltaFor(route),
-          longitudeDelta: deltaFor(route),
+
+  // Initialize Leaflet Map
+  useEffect(() => {
+    if (!leafletReady || !containerRef.current || mapRef.current) return;
+
+    const el = containerRef.current.node || containerRef.current;
+    if (!el || !(el instanceof HTMLElement)) return;
+
+    const initialLat =
+      props.initialRegion?.latitude ??
+      (route.length > 0 ? route[route.length - 1].latitude : KRAKOW_DEFAULT.latitude);
+    const initialLon =
+      props.initialRegion?.longitude ??
+      (route.length > 0 ? route[route.length - 1].longitude : KRAKOW_DEFAULT.longitude);
+
+    try {
+      const map = window.L.map(el, {
+        center: [initialLat, initialLon],
+        zoom: 14,
+        zoomControl: false,
+        attributionControl: true,
+      });
+
+      // Standard colorful OpenStreetMap tiles
+      window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+      }).addTo(map);
+
+      // Add Zoom control to bottom right
+      window.L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+      // Route polyline with outline for high contrast on OSM tiles
+      const latLngs = route.map((p) => [p.latitude, p.longitude]);
+      const polyline = window.L.polyline(latLngs, {
+        color: '#65A30D',
+        weight: 6,
+        opacity: 0.95,
+        lineJoin: 'round',
+        lineCap: 'round',
+      }).addTo(map);
+
+      polylineRef.current = polyline;
+
+      // User location marker
+      if (props.showUserDot && route.length > 0) {
+        const lastPoint = route[route.length - 1];
+        const userIcon = window.L.divIcon({
+          className: 'leaflet-user-marker',
+          html: `<div style="
+            width: 16px;
+            height: 16px;
+            background-color: #84CC16;
+            border: 3px solid #FFFFFF;
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(0,0,0,0.5), 0 0 12px #84CC16;
+          "></div>`,
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        });
+
+        const marker = window.L.marker([lastPoint.latitude, lastPoint.longitude], {
+          icon: userIcon,
+        }).addTo(map);
+        userMarkerRef.current = marker;
+      }
+
+      if (route.length > 1) {
+        map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+        hasFittedBoundsRef.current = true;
+      }
+
+      mapRef.current = map;
+      setMapInitialized(true);
+
+      // Handle container resizing
+      const resizeObserver = new ResizeObserver(() => {
+        if (mapRef.current) {
+          mapRef.current.invalidateSize();
         }
-      : { latitude: 52.52, longitude: 13.405, latitudeDelta: 0.02, longitudeDelta: 0.02 });
+      });
+      resizeObserver.observe(el);
 
-  const d = deltaFor(route);
+      return () => {
+        resizeObserver.disconnect();
+        map.remove();
+        mapRef.current = null;
+        polylineRef.current = null;
+        userMarkerRef.current = null;
+      };
+    } catch (err) {
+      console.error('Error initializing Leaflet map:', err);
+    }
+  }, [leafletReady]);
 
-  const minLat = Math.min(...route.map((p) => p.latitude), region.latitude - d);
-  const maxLat = Math.max(...route.map((p) => p.latitude), region.latitude + d);
-  const minLon = Math.min(...route.map((p) => p.longitude), region.longitude - d);
-  const maxLon = Math.max(...route.map((p) => p.longitude), region.longitude + d);
-  const spanLat = maxLat - minLat || 0.01;
-  const spanLon = maxLon - minLon || 0.01;
+  // Update Route Polyline and Map Position
+  useEffect(() => {
+    if (!mapRef.current || !window.L) return;
 
-  const toX = (lon: number) => ((lon - minLon) / spanLon) * 100;
-  const toY = (lat: number) => 100 - ((lat - minLat) / spanLat) * 100;
+    const latLngs = route.map((p) => [p.latitude, p.longitude]);
+    if (polylineRef.current) {
+      polylineRef.current.setLatLngs(latLngs);
+    }
 
-  const path =
-    route.length > 1
-      ? route
-          .map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX(p.longitude).toFixed(2)} ${toY(p.latitude).toFixed(2)}`)
-          .join(' ')
-      : '';
+    if (route.length > 0) {
+      const lastPoint = route[route.length - 1];
+
+      // Update or create user marker
+      if (props.showUserDot) {
+        if (userMarkerRef.current) {
+          userMarkerRef.current.setLatLng([lastPoint.latitude, lastPoint.longitude]);
+        } else {
+          const userIcon = window.L.divIcon({
+            className: 'leaflet-user-marker',
+            html: `<div style="
+              width: 16px;
+              height: 16px;
+              background-color: #84CC16;
+              border: 3px solid #FFFFFF;
+              border-radius: 50%;
+              box-shadow: 0 0 8px rgba(0,0,0,0.5), 0 0 12px #84CC16;
+            "></div>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+          });
+          userMarkerRef.current = window.L.marker([lastPoint.latitude, lastPoint.longitude], {
+            icon: userIcon,
+          }).addTo(mapRef.current);
+        }
+      }
+
+      // Auto-follow during live recording
+      if (props.follow) {
+        mapRef.current.panTo([lastPoint.latitude, lastPoint.longitude], {
+          animate: true,
+          duration: 0.5,
+        });
+      } else if (route.length > 1 && !hasFittedBoundsRef.current && polylineRef.current) {
+        mapRef.current.fitBounds(polylineRef.current.getBounds(), { padding: [30, 30] });
+        hasFittedBoundsRef.current = true;
+      }
+    }
+  }, [route, props.follow, props.showUserDot]);
 
   return (
-    <View style={styles.mock}>
-      <View style={[styles.gridBase, gridStyle as unknown as object]} />
-      {path ? (
-        <View style={styles.svgWrap}>
-          <svg width="100%" height="100%" preserveAspectRatio="none" style={styles.svg}>
-            <path d={path} fill="none" stroke={theme.accent} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
-          </svg>
+    <View style={styles.container}>
+      <View ref={containerRef} style={styles.mapContainer} />
+      {!leafletReady && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator color={theme.accent} size="small" />
+          <Text style={styles.loadingText}>Loading OpenStreetMap...</Text>
         </View>
-      ) : null}
-      {route.length > 0 && (
-        <View
-          style={[
-            styles.dot,
-            {
-              left: `${toX(route[route.length - 1].longitude)}%`,
-              top: `${toY(route[route.length - 1].latitude)}%`,
-            },
-          ]}
-        />
       )}
-      <View style={styles.labelWrap}>
-        <Text style={styles.label}>OpenStreetMap preview</Text>
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mock: {
+  container: {
     flex: 1,
     backgroundColor: theme.mapTile,
-    overflow: 'hidden',
     position: 'relative',
+    overflow: 'hidden',
   },
-  gridBase: {
+  mapContainer: {
     ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
-  svgWrap: { ...StyleSheet.absoluteFillObject, padding: 6 },
-  svg: { width: '100%', height: '100%' },
-  dot: {
-    position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: theme.accent,
-    marginLeft: -7,
-    marginTop: -7,
-    shadowColor: theme.accent,
-    shadowOpacity: 0.9,
-    shadowRadius: 8,
-    elevation: 4,
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: theme.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
-  labelWrap: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: 'rgba(15,23,42,0.7)',
-    borderRadius: 6,
+  loadingText: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
   },
-  label: { color: theme.textMuted, fontSize: 11, fontFamily: 'Inter-Regular' },
 });
+
