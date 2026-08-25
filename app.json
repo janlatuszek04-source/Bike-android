@@ -13,7 +13,10 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "BikeTracker uses your location to record bicycle rides and show them on a map.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "BikeTracker uses your location to record bicycle rides in the background while the app is mounted on your handlebar.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -48,7 +51,8 @@
           "locationWhenInUsePermission": "BikeTracker uses your location to record bicycle rides.",
           "locationAlwaysAndWhenInUsePermission": "BikeTracker uses your location to record bicycle rides in the background."
         }
-      ]
+      ],
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true
