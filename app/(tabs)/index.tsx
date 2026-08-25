@@ -80,7 +80,7 @@ export default function RecordRideScreen() {
         <RouteMap route={route} initialRegion={initialRegion} follow showUserDot />
         {isMock && stats.state === 'idle' && (
           <View style={styles.mockBadge}>
-            <Text style={styles.mockBadgeText}>Web preview uses simulated GPS data</Text>
+            <Text style={styles.mockBadgeText}>Kraków GPS Preview · Tap START to record</Text>
           </View>
         )}
       </View>

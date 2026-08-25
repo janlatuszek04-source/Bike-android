@@ -19,7 +19,7 @@ function deltaFor(route: LatLng[]): number {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { default: MapView, Polyline } = require('react-native-maps');
+const { default: MapView, Polyline, Marker } = require('react-native-maps');
 
 export function RouteMap(props: CommonProps) {
   const region =
@@ -59,6 +59,20 @@ export function RouteMap(props: CommonProps) {
           lineCap="round"
           lineJoin="round"
         />
+      )}
+      {!props.showUserDot && props.route.length > 1 && (
+        <>
+          <Marker
+            coordinate={props.route[0]}
+            title="Start"
+            pinColor="#22C55E"
+          />
+          <Marker
+            coordinate={props.route[props.route.length - 1]}
+            title="Finish"
+            pinColor="#EF4444"
+          />
+        </>
       )}
     </MapView>
   );
