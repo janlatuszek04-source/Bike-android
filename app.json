@@ -52,7 +52,15 @@
           "locationAlwaysAndWhenInUsePermission": "BikeTracker uses your location to record bicycle rides in the background."
         }
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-navigation-bar",
+        {
+          "hidden": true,
+          "style": "dark",
+          "enforceContrast": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
