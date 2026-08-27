@@ -330,18 +330,27 @@ export function RouteMap(props: CommonProps) {
     }
   }, [leafletReady]);
 
-  // Imperative Re-center handler
+  // Imperative Re-center handler with adaptive bell-curve flight
   useEffect(() => {
     if (!mapRef.current || !window.L || !props.recenterLocation) return;
-    mapRef.current.flyTo([props.recenterLocation.latitude, props.recenterLocation.longitude], 16, {
+    const targetLatLng = window.L.latLng(props.recenterLocation.latitude, props.recenterLocation.longitude);
+    const currentCenter = mapRef.current.getCenter();
+    const distanceMeters = currentCenter.distanceTo(targetLatLng);
+
+    const duration = distanceMeters > 2000 ? 1.5 : (distanceMeters > 300 ? 1.2 : 0.8);
+
+    mapRef.current.stop();
+    mapRef.current.flyTo(targetLatLng, 16, {
       animate: true,
-      duration: 0.8,
+      duration: duration,
+      easeLinearity: 0.2,
+      noMoveStart: false,
     });
     if (userMarkerRef.current) {
-      userMarkerRef.current.setLatLng([props.recenterLocation.latitude, props.recenterLocation.longitude]);
+      userMarkerRef.current.setLatLng(targetLatLng);
     } else if (props.showUserDot) {
       userMarkerRef.current = window.L.marker(
-        [props.recenterLocation.latitude, props.recenterLocation.longitude],
+        targetLatLng,
         { icon: createLiveUserIcon() }
       ).addTo(mapRef.current);
     }
