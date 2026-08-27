@@ -36,7 +36,8 @@
           "body": "Tracking your route in the background. Tap to return to the app.",
           "color": "#84CC16"
         }
-      }
+      },
+      "package": "com.okenlaos.biketracker"
     },
     "web": {
       "bundler": "metro",
