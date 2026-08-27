@@ -64,4 +64,36 @@ export async function startLocationTracking(onPoint: Subscriber): Promise<Remova
   return sub as unknown as Removable;
 }
 
+export async function getCurrentLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  if (Platform.OS === 'web') {
+    return new Promise((resolve) => {
+      if (typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+          () => resolve({ latitude: 50.0647, longitude: 19.9450 }),
+          { timeout: 5000, enableHighAccuracy: true }
+        );
+      } else {
+        resolve({ latitude: 50.0647, longitude: 19.9450 });
+      }
+    });
+  }
+
+  const granted = await ensureLocationPermission();
+  if (!granted) return null;
+
+  try {
+    const loc = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    return {
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+    };
+  } catch (err) {
+    console.warn('Could not fetch current position:', err);
+    return null;
+  }
+}
+
 export { ensureBackgroundPermission as ensureBackground };

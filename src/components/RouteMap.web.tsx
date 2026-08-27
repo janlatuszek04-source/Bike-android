@@ -8,6 +8,8 @@ type CommonProps = {
   initialRegion?: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number };
   follow?: boolean;
   showUserDot?: boolean;
+  userLocation?: LatLng | null;
+  recenterLocation?: LatLng | null;
 };
 
 const KRAKOW_DEFAULT: LatLng = { latitude: 50.0647, longitude: 19.9450 };
@@ -234,9 +236,11 @@ export function RouteMap(props: CommonProps) {
     if (!el || !(el instanceof HTMLElement)) return;
 
     const initialLat =
+      props.userLocation?.latitude ??
       props.initialRegion?.latitude ??
       (route.length > 0 ? route[route.length - 1].latitude : KRAKOW_DEFAULT.latitude);
     const initialLon =
+      props.userLocation?.longitude ??
       props.initialRegion?.longitude ??
       (route.length > 0 ? route[route.length - 1].longitude : KRAKOW_DEFAULT.longitude);
 
@@ -273,7 +277,9 @@ export function RouteMap(props: CommonProps) {
       // Live user location marker
       if (props.showUserDot) {
         const markerPos =
-          route.length > 0 ? route[route.length - 1] : { latitude: initialLat, longitude: initialLon };
+          route.length > 0
+            ? route[route.length - 1]
+            : (props.userLocation ?? { latitude: initialLat, longitude: initialLon });
         const marker = window.L.marker([markerPos.latitude, markerPos.longitude], {
           icon: createLiveUserIcon(),
         }).addTo(map);
@@ -324,6 +330,23 @@ export function RouteMap(props: CommonProps) {
     }
   }, [leafletReady]);
 
+  // Imperative Re-center handler
+  useEffect(() => {
+    if (!mapRef.current || !window.L || !props.recenterLocation) return;
+    mapRef.current.flyTo([props.recenterLocation.latitude, props.recenterLocation.longitude], 16, {
+      animate: true,
+      duration: 0.8,
+    });
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng([props.recenterLocation.latitude, props.recenterLocation.longitude]);
+    } else if (props.showUserDot) {
+      userMarkerRef.current = window.L.marker(
+        [props.recenterLocation.latitude, props.recenterLocation.longitude],
+        { icon: createLiveUserIcon() }
+      ).addTo(mapRef.current);
+    }
+  }, [props.recenterLocation, props.showUserDot]);
+
   // Update Route Polyline and Map Position
   useEffect(() => {
     if (!mapRef.current || !window.L) return;
@@ -333,19 +356,24 @@ export function RouteMap(props: CommonProps) {
       polylineRef.current.setLatLngs(latLngs);
     }
 
-    if (route.length > 0) {
-      const lastPoint = route[route.length - 1];
-
-      // Update or create live user marker
-      if (props.showUserDot) {
+    if (props.showUserDot) {
+      const currentPos =
+        route.length > 0
+          ? route[route.length - 1]
+          : props.userLocation;
+      if (currentPos) {
         if (userMarkerRef.current) {
-          userMarkerRef.current.setLatLng([lastPoint.latitude, lastPoint.longitude]);
+          userMarkerRef.current.setLatLng([currentPos.latitude, currentPos.longitude]);
         } else {
-          userMarkerRef.current = window.L.marker([lastPoint.latitude, lastPoint.longitude], {
+          userMarkerRef.current = window.L.marker([currentPos.latitude, currentPos.longitude], {
             icon: createLiveUserIcon(),
           }).addTo(mapRef.current);
         }
       }
+    }
+
+    if (route.length > 0) {
+      const lastPoint = route[route.length - 1];
 
       // Update Start & Finish markers for detail view
       if (!props.showUserDot && route.length > 1) {
@@ -380,7 +408,7 @@ export function RouteMap(props: CommonProps) {
         hasFittedBoundsRef.current = true;
       }
     }
-  }, [route, props.follow, props.showUserDot]);
+  }, [route, props.follow, props.showUserDot, props.userLocation]);
 
   return (
     <View style={styles.container}>
@@ -403,12 +431,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   mapContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     width: '100%',
     height: '100%',
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: theme.bg,
     alignItems: 'center',
     justifyContent: 'center',

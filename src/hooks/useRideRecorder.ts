@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as Location from 'expo-location';
-import type { RecordingState, TrackPoint } from '../types';
+import type { LatLng, RecordingState, TrackPoint } from '../types';
 import { haversineMeters } from '../utils/geo';
 import { createMockLocationWatcher } from '../utils/mockLocation';
+import { getCurrentLocation } from '../utils/locationService';
 
 const ACCURACY_THRESHOLD_M = 20;
 const MIN_MOVEMENT_M = 3;
@@ -20,6 +21,8 @@ export type RecordingStats = {
   maxSpeed: number;
   track: TrackPoint[];
   lastPoint: TrackPoint | null;
+  previewLocation: LatLng | null;
+  isLocating: boolean;
   error: string | null;
 };
 
@@ -31,6 +34,8 @@ export function useRideRecorder() {
   const [distanceKm, setDistanceKm] = useState(0);
   const [movingTimeSec, setMovingTimeSec] = useState(0);
   const [maxSpeed, setMaxSpeed] = useState(0);
+  const [previewLocation, setPreviewLocation] = useState<LatLng | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
 
   const subRef = useRef<Subscription>(null);
   const startRef = useRef<number>(0);
@@ -240,6 +245,29 @@ export function useRideRecorder() {
     setError(null);
   }, [stop]);
 
+  const locateMe = useCallback(async (): Promise<LatLng | null> => {
+    setIsLocating(true);
+    try {
+      const pos = await getCurrentLocation();
+      if (pos) {
+        setPreviewLocation(pos);
+        return pos;
+      }
+    } catch (e) {
+      console.warn('locateMe failed:', e);
+    } finally {
+      setIsLocating(false);
+    }
+    return null;
+  }, []);
+
+  // Fetch initial location on mount when idle
+  useEffect(() => {
+    if (stateRef.current === 'idle') {
+      locateMe();
+    }
+  }, [locateMe]);
+
   useEffect(() => {
     const handler = (next: AppStateStatus) => {
       void next;
@@ -266,8 +294,10 @@ export function useRideRecorder() {
     maxSpeed,
     track,
     lastPoint: lastPointRef.current,
+    previewLocation,
+    isLocating,
     error,
   };
 
-  return { stats, start, pause, resume, stop, finalizeStats, reset };
+  return { stats, start, pause, resume, stop, finalizeStats, reset, locateMe };
 }

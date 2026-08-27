@@ -37,7 +37,7 @@ export default function RootLayout() {
         />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style="light" backgroundColor="#0F172A" />
+      <StatusBar style="light" />
     </>
   );
 }

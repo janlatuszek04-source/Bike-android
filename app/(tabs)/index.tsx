@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { Circle, MapPin, Pause, Play, Square } from 'lucide-react-native';
+import { Circle, LocateFixed, MapPin, Pause, Play, Square } from 'lucide-react-native';
 import { useRideRecorder } from '../../src/hooks/useRideRecorder';
 import { RouteMap } from '../../src/components/RouteMap';
 import { MetricCard } from '../../src/components/MetricCard';
@@ -12,9 +12,10 @@ import { theme } from '../../src/theme';
 import type { Ride } from '../../src/types';
 
 export default function RecordRideScreen() {
-  const { stats, start, pause, resume, stop, finalizeStats, reset } = useRideRecorder();
+  const { stats, start, pause, resume, stop, finalizeStats, reset, locateMe } = useRideRecorder();
   const [confirmStop, setConfirmStop] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [recenterTarget, setRecenterTarget] = useState<{ latitude: number; longitude: number } | null>(null);
   const router = useRouter();
   const params = useLocalSearchParams<{ saved?: string }>();
 
@@ -27,14 +28,28 @@ export default function RecordRideScreen() {
     [stats.track],
   );
 
-  const initialRegion = stats.lastPoint
+  const initialRegion = (stats.lastPoint ?? stats.previewLocation)
     ? {
-        latitude: stats.lastPoint.latitude,
-        longitude: stats.lastPoint.longitude,
+        latitude: (stats.lastPoint ?? stats.previewLocation)!.latitude,
+        longitude: (stats.lastPoint ?? stats.previewLocation)!.longitude,
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       }
     : undefined;
+
+  const handleLocatePress = async () => {
+    if (stats.lastPoint) {
+      setRecenterTarget({
+        latitude: stats.lastPoint.latitude,
+        longitude: stats.lastPoint.longitude,
+      });
+    } else {
+      const pos = await locateMe();
+      if (pos) {
+        setRecenterTarget({ ...pos });
+      }
+    }
+  };
 
   const handleStart = () => {
     reset();
@@ -77,7 +92,26 @@ export default function RecordRideScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.mapWrap}>
-        <RouteMap route={route} initialRegion={initialRegion} follow showUserDot />
+        <RouteMap
+          route={route}
+          initialRegion={initialRegion}
+          follow
+          showUserDot
+          userLocation={stats.previewLocation}
+          recenterLocation={recenterTarget}
+        />
+        <TouchableOpacity
+          style={styles.locateBtn}
+          onPress={handleLocatePress}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          {stats.isLocating ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : (
+            <LocateFixed size={18} color={theme.accent} />
+          )}
+        </TouchableOpacity>
         {isMock && stats.state === 'idle' && (
           <View style={styles.mockBadge}>
             <Text style={styles.mockBadgeText}>Kraków GPS Preview · Tap START to record</Text>
@@ -293,4 +327,23 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   mockBadgeText: { color: theme.textMuted, fontSize: 11, fontFamily: 'Inter-Regular' },
+  locateBtn: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(15, 23, 42, 0.78)',
+    borderWidth: 1,
+    borderColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 4,
+    zIndex: 20,
+  },
 });

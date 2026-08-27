@@ -1,435 +1,268 @@
-# Technical Problem Descriptions and Implementation Plans
+# Implementation Plans & Technical Problem History
 
-This document provides a comprehensive technical analysis and architectural implementation plan addressing three critical issues in the **BikeTracker** application:
-1. **Empty Black Grid Map (Missing Map Tiles)**
-2. **Unlabeled Center Location Dot (User Marker Ambiguity)**
-3. **Unreadable and Misplaced Speed-to-Distance / Telemetry Graph**
+This document records technical problems identified during development and the solutions implemented in the **BikeTracker** (Bike-android) codebase.
 
----
-
-## 1. Executive Summary of Issues
-
-| Issue | Manifestation in App | Root Cause | Target Solution |
-| :--- | :--- | :--- | :--- |
-| **1. Missing Map Content** | Map area renders as pitch-black squares with a faint CSS grid line overlay instead of streets, terrain, or geography. | `src/components/RouteMap.web.tsx` uses a static CSS linear-gradient placeholder instead of fetching real raster/vector map tiles from OpenStreetMap or a map SDK. | Integrate a real interactive tile-layer mapping engine on Web (Leaflet / OpenStreetMap via HTML5/WebView/DOM or MapLibre GL) with dark-mode tile styling, matching the native `react-native-maps` experience. |
-| **2. Unlabeled Center Dot** | A static lime-green circle appears in the center of the screen with zero context, tooltip, or label. | `RouteMap` unconditionally renders an unannotated `14x14px` `<View>` at the last track point or default coordinate without start/current state tags, pulse animation, or user badge. | Implement a dedicated `UserLocationMarker` component featuring a pulsing ripple ring, directional heading indicator, and clear context badge ("Current Location" / "Ride Start" / "Finish"). |
-| **3. Unreadable & Misplaced Graph** | Speed graph text is overlapping into solid illegible black/white blocks, labeled with raw seconds, and floats awkwardly between metric blocks. | `app/ride/[id].tsx` maps raw GPS coordinates directly to `react-native-gifted-charts` without downsampling, calculates raw seconds instead of distance (km), and lacks axis stride / layout framing. | 1. Calculate cumulative distance (km) on the X-axis.<br>2. Apply LTTB / equidistant downsampling.<br>3. Fix X/Y axis label stride and interval formatting.<br>4. Reorganize layout into an interactive Telemetry Analysis Card with dual mode (Speed vs Distance / Speed vs Time). |
+> **Rule for Agent / Contributor**: Always append new technical problem entries and implementation plans to this document instead of rewriting or deleting the existing history.
 
 ---
 
-## 2. Issue 1: Missing Map Tiles (Black Squares / Grid Pattern)
+## 1. Summary of Resolved Problems
 
-### 2.1 Technical Root Cause Analysis
-In `src/components/RouteMap.web.tsx`, the web implementation is a bare-bones canvas mock:
-```tsx
-// src/components/RouteMap.web.tsx (Lines 21-26)
-const gridStyle = {
-  backgroundColor: theme.mapTile, // #0B1220
-  backgroundImage:
-    'linear-gradient(rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.08) 1px, transparent 1px)',
-  backgroundSize: '32px 32px',
-};
-```
-- **No Tile Engine**: No OpenStreetMap tile layer (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) or CartoDB Dark Matter tile layer is fetched.
-- **Static Coordinate Projection**: GPS coordinates are linearly mapped into a percentage bounding box (`toX`, `toY`) and drawn on an SVG polyline on top of the dark CSS grid.
-- **Misleading Label**: The UI shows `<Text>OpenStreetMap preview</Text>`, but no network requests or tile layers exist.
-- **Wrong Default Location**: Defaults to Berlin (`52.52, 13.405`) instead of **Kraków** (`50.0647, 19.9450`).
-- **Native Discrepancy**: While `RouteMap.native.tsx` uses `react-native-maps`, on Web (often used for development, preview, and web builds), the user only sees an empty grid.
-
-### 2.2 Proposed Solution & Architecture
-
-#### Strategy A: Standard OpenStreetMap Integration for Web
-Embed an interactive OpenStreetMap view using **Leaflet** with standard colorful OpenStreetMap tiles (`https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`), with Kraków (`50.0647, 19.9450`) as the default center.
-
-1. **Web Implementation (`src/components/RouteMap.web.tsx`)**:
-   - Use standard Leaflet JS loaded via an interactive HTML container/DOM iframe.
-   - Configure Standard OpenStreetMap tiles:
-     `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png` with attribution `© OpenStreetMap contributors`.
-   - Default map center: **Kraków, Poland** (`lat: 50.0647, lon: 19.9450`).
-   - Dynamically pan and zoom (`fitBounds`) as new GPS track points arrive.
-   - Draw an SVG/Leaflet `Polyline` with `#84CC16` (theme accent) and 4px width.
-
-2. **Native Implementation Polish (`src/components/RouteMap.native.tsx`)**:
-   - Set default region coordinates to **Kraków, Poland** (`lat: 50.0647, lon: 19.9450`).
-   - Ensure standard Google Maps / Apple Maps tiles render properly with user location and route polyline.
-
-```
-+-------------------------------------------------------------+
-|                      RouteMap Container                     |
-|                                                             |
-|   +-----------------------------------------------------+   |
-|   |  OpenStreetMap / CartoDB Dark Tile Layer             |   |
-|   |  (Streets, Rivers, Parks, Topography in Dark Theme) |   |
-|   +-----------------------------------------------------+   |
-|                              │                              |
-|                              ▼                              |
-|   +-----------------------------------------------------+   |
-|   |  Dynamic Polyline Layer (Lime Green #84CC16)        |   |
-|   +-----------------------------------------------------+   |
-|                              │                              |
-|                              ▼                              |
-|   +-----------------------------------------------------+   |
-|   |  UserLocationMarker / StartPin / FinishPin          |   |
-|   +-----------------------------------------------------+   |
-+-------------------------------------------------------------+
-```
-
-### 2.3 Step-by-Step Implementation Plan
-1. **Create Web Map Helper**: Create a clean Leaflet DOM-based map container in `src/components/RouteMap.web.tsx` using `unpkg.com/leaflet` or native Leaflet CSS/JS.
-2. **Apply Tile Provider**: Set TileLayer URL to `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png` with attribution `© OpenStreetMap contributors © CARTO`.
-3. **Synchronize Route & Bounds**:
-   - Update Polyline coordinates whenever `props.route` changes.
-   - When `props.follow` is true, center the map on the latest point with smooth panning (`panTo`).
-4. **Fallback Handling**: If offline or tiles fail to load, gracefully fall back to vector route rendering with an "Offline Map" indicator.
+| # | Problem | Root Cause | Implemented Solution | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | **Missing Web Map Tiles (Black Grid)** | `src/components/RouteMap.web.tsx` used a CSS linear-gradient mock instead of fetching real tiles. | Integrated interactive Leaflet.js with OpenStreetMap raster tiles (`tile.openstreetmap.org`) and standardized default center on Kraków (`50.0647, 19.9450`). | ✅ **Resolved** |
+| **2** | **Unlabeled Center Location Marker** | Static 14px dot without labels, heading context, or dynamic status. | Created animated radar pulse marker with "📍 Current Location" badge for live rides, and Start 🚩 / Finish 🏁 pins for history views. | ✅ **Resolved** |
+| **3** | **Unreadable Telemetry Graph** | Graph had overlapping text blocks, raw second intervals, and lacked metric downsampling. | Refactored `app/ride/[id].tsx` with distance-based X-axis (km), stride formatting, and structured Telemetry Analysis cards. | ✅ **Resolved** |
+| **4** | **Android Expo Go Map Black Screen & Flickering** | 1. Missing Google Maps API key in `app.json`.<br>2. Controlled `region` prop churn destroying camera on every GPS tick.<br>3. Fabric SurfaceView z-fighting in Expo Go. | **Implemented Strategy A**: Unified cross-platform Leaflet + OpenStreetMap engine in `src/components/RouteMap.native.tsx` via `react-native-webview`. Uses `injectJavaScript` action bridge for 60 FPS smooth panning with zero Google Cloud API keys needed. | ✅ **Resolved** |
+| **5** | **Missing Manual GPS Locate Me Button & Pre-Start Centering** | No one-time geolocation query in idle mode; missing floating locate button and imperative fly-to bridge action. | Added `getCurrentLocation()` in `locationService.ts`, auto-mount geolocation in `useRideRecorder.ts`, `RECENTER_ON_LOCATION` bridge action (`map.flyTo`), and discreet bottom-right circular button (`LocateFixed`). | ✅ **Resolved** |
 
 ---
 
-## 3. Issue 2: Unlabeled Center Location Dot
+## 2. Current Architecture & Conventions
 
-### 3.1 Technical Root Cause Analysis
-In `src/components/RouteMap.web.tsx`:
-```tsx
-// Lines 70-80
-{route.length > 0 && (
-  <View
-    style={[
-      styles.dot,
-      {
-        left: `${toX(route[route.length - 1].longitude)}%`,
-        top: `${toY(route[route.length - 1].latitude)}%`,
-      },
-    ]}
-  />
-)}
-```
-- **Zero Identification**: The dot is just a plain `14px` lime green square with `borderRadius: 7`. There is no textual indicator, icon, or label.
-- **State Confusion**:
-  - In `idle` state before pressing **START**, the map defaults to Berlin (`52.52, 13.405`) or initial location. The dot sits dead-center without telling the user "Current GPS Location" or "Ready to Record".
-  - In `recording` state, the user cannot tell if it represents the starting point, current head of the track, or a waypoint.
-  - On the **Ride Detail** screen (`app/ride/[id].tsx`), only the last coordinate has a dot; the start coordinate is missing completely.
+1. **Mapping Engine (Cross-Platform Parity)**:
+   - **Web**: [RouteMap.web.tsx](file:///C:/Users/Jan/WebstormProjects/Bike-android/src/components/RouteMap.web.tsx) (Leaflet DOM + OpenStreetMap).
+   - **Android & iOS**: [RouteMap.native.tsx](file:///C:/Users/Jan/WebstormProjects/Bike-android/src/components/RouteMap.native.tsx) (`react-native-webview` + Leaflet + OpenStreetMap).
+   - **Bridge Protocol**: React Native streams updates into the embedded map via `injectJavaScript` (`UPDATE_ROUTE`, `UPDATE_USER_LOCATION`, `SET_START_FINISH`, `RECENTER_ON_LOCATION`) without component remounts or view flickering.
+   - **Zero Configuration**: Eliminates dependency on Google Cloud Console billing, SHA-1 certificates, and Google Play Services API keys.
 
-### 3.2 Proposed Solution & Architecture
+2. **GPS & Telemetry**:
+   - Jitter filtering: accuracy threshold $\le 20\text{m}$, movement threshold $\ge 3\text{m}$ (Haversine formula in `src/utils/geo.ts`).
+   - State management: `useRideRecorder.ts` handles `idle` | `recording` | `paused` lifecycles + `previewLocation` & `locateMe()`.
 
-#### 1. Context-Aware Location Marker Component (`src/components/LocationMarker.tsx`)
-Create a dedicated marker component with three distinct visual states:
-
-```
-[ Idle / Live GPS ]                [ Ride Detail: Start ]           [ Ride Detail: Finish ]
-    ( ( 🔘 ) )                           🚩 START                          🏁 FINISH
-  +---------------+                     +---------+                       +----------+
-  | Current Pos   |                     | 0.00 km |                       | 14.82 km |
-  +---------------+                     +---------+                       +----------+
-```
-
-- **Live Tracker Mode (`app/(tabs)/index.tsx`)**:
-  - **Pulsing Halo Ring**: Animated CSS/Reanimated radar pulse showing active GPS signal lock.
-  - **High-Contrast Center**: White core with lime border (`#84CC16`).
-  - **Floating Badge**: Small pill tag displaying `"Current Position"` or `"Live GPS"` with instantaneous speed readout.
-- **Historical Ride Detail Mode (`app/ride/[id].tsx`)**:
-  - **Green Start Pin (A)**: Tagged `"Start"` at `route[0]`.
-  - **Red/Checker Finish Pin (B)**: Tagged `"Finish"` at `route[route.length - 1]`.
-
-### 3.3 Step-by-Step Implementation Plan
-1. **Design `LocationMarker` Component**:
-   - Props: `type: 'live' | 'start' | 'end'`, `coordinate: LatLng`, `title?: string`, `speedKmh?: number`.
-   - Include radar pulse animation (`@keyframes pulse` on web, `Animated.loop` on native).
-2. **Update `RouteMap.web.tsx` & `RouteMap.native.tsx`**:
-   - In Live Mode (`showUserDot={true}`), render the pulsing `LocationMarker` at the latest track point with a `"Current Location"` label.
-   - In Detail Mode, render both **Start Marker** (green badge with flag icon) and **Finish Marker** (red/lime badge with checkered flag).
-3. **Empty / Pre-start State Indicator**:
-   - When idle and awaiting GPS fix, display a banner: `"Waiting for GPS signal..."` instead of a mysterious static dot in Berlin.
+3. **Storage**:
+   - AsyncStorage key: `biketracker.rides.v1` via `src/utils/storage.ts`.
 
 ---
 
-## 4. Issue 3: Unreadable & Misplaced Speed-to-Distance Graph
+## 3. [Resolved] Manual GPS "Locate Me" Button & Pre-Start Centering
 
-### 4.1 Technical Root Cause Analysis
+### 3.1 Problem Statement
+Currently, there is no manual "GPS / Locate Me" button in the application UI:
+- **Default Hardcoded Coordinates on Launch**: When a user opens the app in `idle` state, the map defaults to Kraków center (`50.0647, 19.9450`) because continuous GPS tracking only starts after tapping **START**.
+- **No Manual Re-centering**: When recording a ride or exploring the map, if the user manually pans or zooms away from their current position, there is no quick-action button to snap the camera back to their real-time location.
+- **Inability to Verify GPS Reception Before Recording**: Cyclists cannot verify GPS satellite lock or accuracy before starting a recording session.
 
-#### A. Overlapping / Colliding Labels
-In `app/ride/[id].tsx`:
-```tsx
-// Lines 31-38
-const chartData = useMemo(() => {
-  if (!ride || ride.track.length === 0) return [];
-  const start = ride.track[0].timestamp;
-  return ride.track.map((p) => ({
-    value: Number(p.speedKmh.toFixed(1)),
-    label: `${Math.floor((p.timestamp - start) / 1000)}s`, // Raw seconds for every single point!
-  }));
-}, [ride]);
+---
+
+### 3.2 Technical Root Cause Analysis
+
+1. **Absence of a One-Time Location Query Mechanism**:
+   - `src/utils/locationService.ts` and `src/hooks/useRideRecorder.ts` only subscribe to continuous location streams (`Location.watchPositionAsync`) during `recording` state.
+   - There is no one-time location query (`Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })`) on initial app mount or via manual request.
+2. **Missing Floating Action Button (FAB) in UI**:
+   - [app/(tabs)/index.tsx](file:///C:/Users/Jan/WebstormProjects/Bike-android/app/(tabs)/index.tsx) does not include a floating "Locate Me" icon button overlaid on the map container.
+3. **Map Bridge Lacks Imperative Re-center / Fly-To Dispatcher**:
+   - Neither [RouteMap.native.tsx](file:///C:/Users/Jan/WebstormProjects/Bike-android/src/components/RouteMap.native.tsx) nor [RouteMap.web.tsx](file:///C:/Users/Jan/WebstormProjects/Bike-android/src/components/RouteMap.web.tsx) accepts an imperative `recenter()` command or dispatches a `map.flyTo([lat, lon], 16)` action to dynamically reposition the camera outside of the standard `props.follow` stream.
+4. **Decoupled Pre-Start State**:
+   - In `idle` state, `stats.lastPoint` is `null`, which causes the map to fall back to hardcoded default coordinates rather than the user's actual device location.
+
+---
+
+### 3.3 Proposed Target Solution & Architectural Design
+
 ```
-- A 30-minute ride recorded every 2 seconds creates **900 data points**.
-- The code creates 900 X-axis labels (`"0s"`, `"2s"`, `"4s"`, ..., `"1800s"`).
-- `react-native-gifted-charts` tries to render all 900 text labels in a 300px width container, resulting in hundreds of overlapping characters creating an unreadable solid black smear across the screen.
-
-#### B. Wrong Metric on X-Axis (Seconds instead of Distance)
-- The user requested and expected a **Speed vs Distance** graph (the cycling standard).
-- The current implementation plots raw timestamp seconds (`${s}s`) rather than cumulative distance in kilometers (`0.0 km`, `2.5 km`, `5.0 km`, etc.).
-
-#### C. Unbounded Chart Sizing & Poor Visual Placement
-- In `app/ride/[id].tsx`, `LineChart` is rendered with `height={180}` inside a generic `chartCard` wedged between the summary cards and the detailed breakdown list:
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                            MANUAL GPS "LOCATE ME" ARCHITECTURE                              │
+├─────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                             │
+│  UI Layer (app/(tabs)/index.tsx)                                                            │
+│  ┌───────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │ • Discreet Floating Button in bottom-right corner (38x38px, translucent slate #0F172A) │  │
+│  │ • Auto-trigger location fetch on component mount (in idle mode)                       │  │
+│  │ • Loading state feedback (<ActivityIndicator /> inside button during GPS acquisition) │  │
+│  └───────────────────────────────────┬───────────────────────────────────────────────────┘  │
+│                                      │ triggers locateMe()                                  │
+│                                      ▼                                                      │
+│  Location Engine (useRideRecorder.ts / locationService.ts)                                  │
+│  ┌───────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │ 1. Request foreground permissions if not already granted                              │  │
+│  │ 2. Call Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })   │  │
+│  │ 3. Store previewLocation: LatLng & isLocating: boolean in hook state                  │  │
+│  │ 4. Expose imperative locateMe() function                                              │  │
+│  └───────────────────────────────────┬───────────────────────────────────────────────────┘  │
+│                                      │ dispatch RECENTER_ON_LOCATION action                 │
+│                                      ▼                                                      │
+│  Leaflet Map Engine (RouteMap.native.tsx / RouteMap.web.tsx)                                │
+│  ┌───────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │ • Smooth camera fly-to: map.flyTo([lat, lon], 16, { animate: true, duration: 0.8 })    │  │
+│  │ • Update or render live radar dot at current user coordinates                         │  │
+│  └───────────────────────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
-+------------------------------------+
-|  Top Bar (Date, Time, Back Arrow)  |
-+------------------------------------+
-|  Route Map (240px)                 |
-+------------------------------------+
-|  Metric Cards: Distance & Moving   |
-+------------------------------------+
-|  Metric Cards: Average & Peak      |
-+------------------------------------+
-|  [Chart Card: Unreadable Smear]    | <--- Awkward, unformatted, cramped
-+------------------------------------+
-|  Stat Lines List                   |
-+------------------------------------+
-```
-- No horizontal scrolling, no responsive parent width calculation, no interactive point tooltips, and no legend explaining axis intervals.
 
-### 4.2 Proposed Solution & Architecture
+---
 
-#### 1. Distance-Based Telemetry Calculation
-Calculate cumulative distance at each track point using the Haversine formula:
-```ts
-function computeDistanceChartData(track: TrackPoint[], targetBuckets = 30) {
-  if (track.length === 0) return [];
-  
-  let cumulativeMeters = 0;
-  const pointsWithDistance: { distanceKm: number; speedKmh: number }[] = [];
-  
-  for (let i = 0; i < track.length; i++) {
-    if (i > 0) {
-      cumulativeMeters += haversineMeters(track[i - 1], track[i]);
-    }
-    pointsWithDistance.push({
-      distanceKm: cumulativeMeters / 1000,
-      speedKmh: track[i].speedKmh,
+### 3.4 File-by-File Detailed Code Specification
+
+#### 1. `src/utils/locationService.ts`
+Implement `getCurrentLocation()` to fetch a single high-accuracy GPS fix with permission handling and Web fallback:
+```typescript
+export async function getCurrentLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  if (Platform.OS === 'web') {
+    // On Web, return default Krakow or browser geolocation if available
+    return new Promise((resolve) => {
+      if (typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+          () => resolve({ latitude: 50.0647, longitude: 19.9450 }),
+          { timeout: 5000, enableHighAccuracy: true }
+        );
+      } else {
+        resolve({ latitude: 50.0647, longitude: 19.9450 });
+      }
     });
   }
-  
-  // Downsample to targetBuckets (e.g. 20-30 clean points)
-  return downsampleTelemetry(pointsWithDistance, targetBuckets);
+
+  const granted = await ensureLocationPermission();
+  if (!granted) return null;
+
+  try {
+    const loc = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    return {
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+    };
+  } catch (err) {
+    console.warn('Could not fetch current position:', err);
+    return null;
+  }
 }
 ```
 
-#### 2. Downsampling & Label Stride Algorithm (LTTB / Even Sampling)
-- Downsample 500+ raw GPS coordinates into **25–35 clean display points**.
-- Apply moving average smoothing (window size = 3) to eliminate GPS speed jitter.
-- Only show X-axis labels at clean, evenly spaced intervals (e.g., every 1 km, 2 km, or 5 km):
-```ts
-// Example formatted labels:
-// Point 0  -> label: "0 km",  showXAxisIndex: true
-// Point 5  -> label: "",      showXAxisIndex: false
-// Point 10 -> label: "2.5 km", showXAxisIndex: true
-```
-
-#### 3. Redesigned Telemetry Card UI & Layout
-Reorder the Ride Detail screen for clear visual hierarchy:
-1. **Hero Route Map** (with Start/Finish badges and route path)
-2. **Key Metric Summary Grid** (Distance, Total Time, Avg Speed, Max Speed)
-3. **Dedicated Telemetry Analysis Section**:
-   - **Mode Switcher Toggle**: `[ Speed vs Distance ]` | `[ Speed vs Time ]`
-   - **Summary Sub-header**: Average line reference, Peak speed marker callout.
-   - **Interactive Line Chart**:
-     - Clean Y-axis: `0`, `10`, `20`, `30`, `40` km/h with horizontal dotted grid lines.
-     - Clean X-axis: `0 km`, `1.0 km`, `2.0 km`, `3.0 km` (or `00:00`, `05:00`, `10:00`).
-     - Interactive tooltip on tap displaying: `Speed: 24.3 km/h · Dist: 1.8 km`.
-4. **Chronological Splits / Segment Details**
-
-```
-+─────────────────────────────────────────────────────────────+
-|                     SPEED PROFILE                           |
-|  [ Speed vs Distance ] (active)    [ Speed vs Time ]        |
-|                                                             |
-|  km/h                                                       |
-|   40 ┼ - - - - - - - - - - - - - - - - - - - - (Peak: 38.2) |
-|   30 ┼           ╭────────╮                                 |
-|   20 ┼───────────╯        ╰──────╮        ╭──────── (Avg: 21.4)
-|   10 ┼                            ╰───────╯                 |
-|    0 ┴──────────┬──────────┬──────────┬──────────┬────────  |
-|               0.0 km     1.0 km     2.0 km     3.0 km       |
-+─────────────────────────────────────────────────────────────+
-```
-
-### 4.3 Step-by-Step Implementation Plan
-1. **Implement `src/utils/telemetry.ts`**:
-   - `buildSpeedDistanceSeries(track, maxPoints)`: Computes cumulative distance, applies smoothing, and generates clean X-axis step labels.
-   - `buildSpeedTimeSeries(track, maxPoints)`: Generates clean elapsed time step labels (`mm:ss`).
-2. **Configure `react-native-gifted-charts` Parameters in `app/ride/[id].tsx`**:
-   - Set `initialSpacing={10}`, `endSpacing={10}`, `spacing={width / points.length}`.
-   - Set `yAxisLabelSuffix=" km/h"`, `yAxisTextStyle`, `xAxisLabelTextStyle` with explicit margins.
-   - Set `stepValue` and `maxValue` dynamically based on `Math.ceil(ride.maxSpeed / 10) * 10`.
-   - Add `showDataPointsForMissingValues={false}` and `curved={true}` for clean curves.
-3. **Add Segment Toggle**:
-   - Add state `[chartMetric, setChartMetric] = useState<'distance' | 'time'>('distance')`.
-   - Render segmented control button group above the chart.
-4. **Interactive Scrubbing / Tooltips**:
-   - Enable `pointerConfig` in `LineChart` to show pointer strip, coordinate dot, and floating tooltip on touch.
-
 ---
 
-## 5. File Modifications & Architecture Map
+#### 2. `src/hooks/useRideRecorder.ts`
+1. Add `previewLocation` (`LatLng | null`) and `isLocating` (`boolean`) states.
+2. Automatically fetch location once on initial hook mount.
+3. Expose `locateMe: () => Promise<LatLng | null>`:
+```typescript
+const [previewLocation, setPreviewLocation] = useState<LatLng | null>(null);
+const [isLocating, setIsLocating] = useState(false);
 
-```
-Bike-android/
-├── src/
-│   ├── components/
-│   │   ├── RouteMap.web.tsx         [MODIFIED] -> Real Leaflet / CartoDB Dark tile layer & bounds
-│   │   ├── RouteMap.native.tsx      [MODIFIED] -> Start/Finish markers & custom dark map styles
-│   │   ├── RouteMap.d.ts            [MODIFIED] -> Updated props (markers, follow, interactive)
-│   │   └── LocationMarker.tsx       [NEW]      -> Pulsing radar GPS indicator & text label
-│   ├── utils/
-│   │   ├── telemetry.ts             [NEW]      -> Downsampling, distance series, smoothing
-│   │   └── geo.ts                   [MODIFIED] -> Haversine cumulative distance helpers
-│   └── theme.ts                     [MODIFIED] -> Added chart grid & marker color tokens
-├── app/
-│   ├── (tabs)/
-│   │   └── index.tsx                [MODIFIED] -> Live GPS status badge, labeled position indicator
-│   └── ride/
-│       └── [id].tsx                 [MODIFIED] -> Reorganized layout, Speed vs Distance chart
-└── docs/
-    ├── codebaseanalisis.md          [REFERENCE]
-    └── Implamentation_plans.md      [THIS FILE]
+const locateMe = useCallback(async (): Promise<LatLng | null> => {
+  setIsLocating(true);
+  try {
+    const pos = await getCurrentLocation();
+    if (pos) {
+      setPreviewLocation(pos);
+      return pos;
+    }
+  } catch (e) {
+    console.warn('locateMe failed:', e);
+  } finally {
+    setIsLocating(false);
+  }
+  return null;
+}, []);
+
+// Auto-fetch on mount in idle mode
+useEffect(() => {
+  if (state === 'idle') {
+    locateMe();
+  }
+}, []);
 ```
 
 ---
 
-## 6. Verification and Validation Checklist
-
-- [x] **Web Map Tiles**: Opening `http://localhost:8081` on Web displays genuine map streets and terrain (Standard OSM) instead of an empty black grid. Default center is set to Kraków (50.0647, 19.9450).
-- [x] **Active Tracking Marker**: A clear pulsing marker labeled `"📍 Current Location"` is visible with animated radar rings and tracks simulated/real GPS points smoothly.
-- [x] **Start & Finish Pins**: Completed rides show a green `"🚩 START"` badge at origin and a checkered `"🏁 FINISH"` badge at destination.
-- [x] **Speed vs Distance Graph**:
-  - X-axis clearly displays distance in kilometers (`0 km`, `1.5 km`, `3.0 km`...).
-  - Text labels do not overlap or collide.
-  - Data points are smoothly curved and downsampled.
-  - Tapping or scrubbing shows exact telemetry at that distance.
-- [x] **Visual Layout**: Graph is housed in a clean, dedicated card with metric toggle controls and proper padding.
-
----
-
-## 7. Granular Step-by-Step Implementation & Git Commit Roadmap
-
-Every step below represents an isolated, logically scoped, and individually testable atomic unit of work suitable for a single Git commit.
-
+#### 3. `src/components/RouteMap.native.tsx` & `src/components/RouteMap.web.tsx`
+Add a handler for `RECENTER_ON_LOCATION` in the Leaflet bridge script:
+```javascript
+else if (action.type === 'RECENTER_ON_LOCATION') {
+  map.flyTo([p.lat, p.lon], 16, { animate: true, duration: 0.8 });
+  if (!userMarker) {
+    var liveIcon = L.divIcon({
+      className: 'custom-live-marker-container',
+      html: '<div class="custom-live-marker"><div class="live-label-pill">📍 Current Location</div><div class="live-radar-pulse"></div><div class="live-core-dot"></div></div>',
+      iconSize: [16, 16],
+      iconAnchor: [8, 8]
+    });
+    userMarker = L.marker([p.lat, p.lon], { icon: liveIcon }).addTo(map);
+  } else {
+    userMarker.setLatLng([p.lat, p.lon]);
+  }
+}
 ```
-Commit 1 (Done) ──► Commit 2 (Done) ──► Commit 3 (Done) ──► Commit 4 (Done) ──► Commit 5 (Done) ──► Commit 6 (Done) ──► Commit 7 (Done)
+Expose `recenterLocation?: LatLng | null` in `RouteMap` props so that whenever a re-center request arrives, it triggers the action immediately.
+
+---
+
+#### 4. `app/(tabs)/index.tsx`
+Add the minimal, discreet floating button in the **bottom-right corner** of `styles.mapWrap`:
+
+```tsx
+import { LocateFixed } from 'lucide-react-native';
+
+// Inside RecordRideScreen JSX, inside <View style={styles.mapWrap}>:
+<TouchableOpacity
+  style={styles.locateBtn}
+  onPress={handleLocatePress}
+  activeOpacity={0.7}
+  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+>
+  {isLocating ? (
+    <ActivityIndicator size="small" color={theme.accent} />
+  ) : (
+    <LocateFixed size={18} color={theme.accent} />
+  )}
+</TouchableOpacity>
+```
+
+**Minimal & Discreet Styles**:
+```typescript
+locateBtn: {
+  position: 'absolute',
+  bottom: 16,
+  right: 16,
+  width: 38,
+  height: 38,
+  borderRadius: 19,
+  backgroundColor: 'rgba(15, 23, 42, 0.78)',
+  borderWidth: 1,
+  borderColor: '#334155',
+  alignItems: 'center',
+  justifyContent: 'center',
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.35,
+  shadowRadius: 4,
+  elevation: 4,
+  zIndex: 20,
+}
 ```
 
 ---
 
-### Step 1: OpenStreetMap Leaflet Integration & Kraków Center
-- **Git Commit Message**: `feat(map): integrate OpenStreetMap Leaflet engine and set Krakow as default center`
-- **Status**: `[COMPLETED]`
-- **Target Files**:
-  - `src/components/RouteMap.web.tsx`
-  - `src/components/RouteMap.native.tsx`
-  - `src/utils/mockLocation.ts`
-- **Scope of Changes**:
-  - Replaced the static CSS linear-gradient mock with dynamic Leaflet JS + OpenStreetMap tile layer (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`).
-  - Changed fallback and mock GPS base coordinates from Berlin (`52.52, 13.405`) to Kraków (`50.0647, 19.9450`).
-  - Added `ResizeObserver` for dynamic container resizing and auto-panning during live GPS stream.
-- **Validation Criteria**:
-  - Web map renders genuine OpenStreetMap tiles centered on Kraków.
-  - Zoom controls and map panning function seamlessly without crashes.
+### 3.5 Edge Cases & Failure Mitigations
+
+1. **Permission Denied or Location Services Disabled**:
+   - If location permission is not granted, `getCurrentLocation()` gracefully returns `null` without throwing unhandled exceptions.
+   - The map retains the default or last known position.
+2. **Indoor GPS Delays**:
+   - `Location.Accuracy.Balanced` is used for the single location fix rather than `BestForNavigation`, enabling rapid Wi-Fi/cellular triangulation ($< 1\text{s}$) rather than waiting $> 15\text{s}$ for GPS satellite locks indoors.
+3. **Re-centering While Recording**:
+   - If the user has panned away while recording, pressing the locate button retrieves the latest recorded track point (`stats.lastPoint`) or fresh coordinate, centers the camera, and restores auto-follow.
 
 ---
 
-### Step 2: Pulsing Radar Marker & Start/Finish Flag Badges
-- **Git Commit Message**: `feat(map): add radar pulse to live location marker and start/finish flags`
-- **Status**: `[COMPLETED]`
-- **Target Files**:
-  - `src/components/RouteMap.web.tsx`
-  - `src/components/RouteMap.native.tsx`
-  - `app/(tabs)/index.tsx`
-- **Scope of Changes**:
-  - Injected CSS `@keyframes live-radar-pulse` creating an animated pulsing ring around the live location marker.
-  - Added `"📍 Current Location"` high-contrast floating pill badge.
-  - Created `"🚩 START"` (green) and `"🏁 FINISH"` (dark/red) pin markers for completed ride overview maps.
-  - Updated live recording status text in `app/(tabs)/index.tsx` to `"Kraków GPS Preview · Tap START to record"`.
-- **Validation Criteria**:
-  - Live recorder displays an unambiguous, labeled pulsing dot at user's current GPS position.
-  - Ride details screen displays distinct Start and Finish markers at track endpoints.
+### 3.6 Step-by-Step Execution Phases & Rollout Plan
+
+1. **Phase 1**: Add `getCurrentLocation()` helper in `src/utils/locationService.ts`.
+2. **Phase 2**: Add `previewLocation`, `isLocating`, and `locateMe()` in `src/hooks/useRideRecorder.ts`.
+3. **Phase 3**: Update `RouteMap.native.tsx` and `RouteMap.web.tsx` to handle `RECENTER_ON_LOCATION` and `recenterLocation` prop.
+4. **Phase 4**: Add discreet floating button UI in `app/(tabs)/index.tsx` (bottom-right corner) with loading indicator.
+5. **Phase 5**: Run `npm run typecheck` to verify TypeScript compliance with 0 errors.
+6. **Phase 6**: Test on Android Expo Go and Web to confirm auto-centering on launch and manual re-centering behavior.
 
 ---
 
-### Step 3: Telemetry Distance Calculation & Data Downsampler Utility
-- **Git Commit Message**: `feat(telemetry): add Haversine distance calculator and chart data downsampling utility`
-- **Status**: `[COMPLETED]`
-- **Target Files**:
-  - `src/utils/telemetry.ts`
-  - `src/utils/geo.ts`
-- **Scope of Changes**:
-  - Created `src/utils/telemetry.ts` with:
-    - `computeCumulativeDistances(track: TrackPoint[])`: Calculates running cumulative distance in kilometers using the Haversine formula.
-    - `downsampleTelemetry(data, targetCount = 30)`: Compresses 500–1000+ raw GPS coordinates into 25–35 evenly distributed points.
-    - `smoothSpeedSeries(points, windowSize = 3)`: Applies a moving average smoothing filter to remove GPS jitter.
-    - `buildSpeedDistanceSeries` & `buildSpeedTimeSeries`: Generates spaced step labels preventing label overlap.
-  - Added `formatDistance` helper to `src/utils/geo.ts`.
-- **Validation Criteria**:
-  - Feeding GPS datasets into `buildSpeedDistanceSeries` outputs clean data points with readable, non-colliding labels.
+### 3.7 Verification & QA Checklist
 
----
-
-### Step 4: Dual-Mode Telemetry Toggle & GiftedCharts Formatting
-- **Git Commit Message**: `feat(charts): implement dual-mode telemetry toggle and responsive LineChart configuration`
-- **Status**: `[COMPLETED]`
-- **Target Files**:
-  - `app/ride/[id].tsx`
-- **Scope of Changes**:
-  - Added state `[chartMetric, setChartMetric] = useState<'distance' | 'time'>('distance')` to toggle between **Speed vs Distance** (`km`) and **Speed vs Time** (`mm:ss`).
-  - Integrated `buildSpeedDistanceSeries` and `buildSpeedTimeSeries` from `src/utils/telemetry.ts`.
-  - Configured `react-native-gifted-charts` with dynamic `maxValue`, `stepValue`, and spaced X-axis labels.
-- **Validation Criteria**:
-  - X-axis displays clean distance markers (`0.0 km`, `1.0 km`, `2.0 km`...).
-  - Tapping toggle button instantly swaps the X-axis between distance and time with zero text overlap.
-
----
-
-### Step 5: Interactive Pointer Scrubbing & Tooltip Popups
-- **Git Commit Message**: `feat(charts): add interactive touch scrubbing and tooltip popup to speed graph`
-- **Status**: `[COMPLETED]`
-- **Target Files**:
-  - `app/ride/[id].tsx`
-- **Scope of Changes**:
-  - Added `pointerConfig` to `LineChart` in `app/ride/[id].tsx` to enable touch/drag scrubbing.
-  - Implemented a customized floating tooltip component displaying:
-    - Instantaneous Speed (`XX.X km/h`)
-    - Distance at point (`X.XX km`) or Timestamp (`MM:SS`)
-  - Rendered a vertical cursor strip with accent dot highlighting the touched point.
-- **Validation Criteria**:
-  - Touching/dragging anywhere across the graph displays a floating card with exact numerical speed and distance values.
-
----
-
-### Step 6: Telemetry Card Hierarchy & Screen Layout Redesign
-- **Git Commit Message**: `refactor(ui): redesign Ride Detail screen layout and telemetry card hierarchy`
-- **Status**: `[COMPLETED]`
-- **Target Files**:
-  - `app/ride/[id].tsx`
-- **Scope of Changes**:
-  - Restructured the Ride Detail screen hierarchy:
-    1. **Top Bar**: Date, Start/End timestamps, Back navigation.
-    2. **Hero Route Map**: 240px Leaflet map with Start/Finish pins.
-    3. **Key Metrics Grid**: 4 summary cards (Distance, Moving Time, Avg Speed, Peak Speed).
-    4. **Telemetry Analysis Card**:
-       - Card Header with Title and Mode Switcher Segmented Control (`[ Speed vs Distance ]` / `[ Speed vs Time ]`).
-       - Sub-header badges showing reference lines (Average speed line, Max speed pill).
-       - Full-width responsive interactive LineChart with legend.
-    5. **Detailed Splits & Breakdown Card**: Chronological stats list.
-- **Validation Criteria**:
-  - Layout flows logically on both mobile screens and desktop/web browsers with zero visual clutter.
-
----
-
-### Step 7: Documentation Finalization & Final Verification
-- **Git Commit Message**: `docs: finalize implementation documentation and verification checklist`
-- **Status**: `[COMPLETED]`
-- **Target Files**:
-  - `docs/Implamentation_plans.md`
-- **Scope of Changes**:
-  - Verified all 3 problems against the verification checklist.
-  - Marked all roadmap steps and verification items as completed.
-- **Validation Criteria**:
-  - Full codebase consistency achieved across Web, Native, and documentation.
-
-
+- [ ] **App Launch Auto-Centering**: Opening the app in `idle` mode immediately fetches device GPS and glides map to the user's location with the green radar dot.
+- [ ] **Manual Locate Tap**: Panning away from the user position and tapping the bottom-right button smoothly animates the camera back (`map.flyTo`).
+- [ ] **Loading Spinner**: The button displays a discreet mini `<ActivityIndicator />` while locating and reverts to `<LocateFixed />` once resolved.
+- [ ] **In-Ride Functionality**: Tapping the button while recording or paused re-aligns camera with current cyclist position.
+- [ ] **Visual Discretion**: Button stays compact ($38\times 38\text{px}$) in the bottom-right corner without overlapping dashboard metrics or blocking map interactions.
