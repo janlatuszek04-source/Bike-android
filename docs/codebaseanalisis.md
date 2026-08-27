@@ -6,22 +6,23 @@ This document provides a comprehensive technical overview and architecture refer
 
 ## 1. Project Overview & Purpose
 
-**BikeTracker** is a cross-platform mobile and web application built with **React Native**, **Expo (SDK 54)**, and **TypeScript**. It functions as a digital bicycle computer and ride tracking app that records cycling sessions, plots real-time GPS routes, displays telemetry data (speed, elapsed moving time, distance, averages, and maximums), and provides historical review with interactive speed charts.
+**BikeTracker** is a cross-platform mobile and web application built with **React Native**, **Expo SDK 57**, and **TypeScript**. It functions as a digital bicycle computer and ride tracking app that records cycling sessions, plots real-time GPS routes, displays telemetry data (speed, elapsed moving time, distance, averages, and maximums), and provides historical review with interactive speed charts.
 
 ---
 
 ## 2. Tech Stack & Dependencies
 
-- **Framework**: React Native `0.81.4`, Expo SDK `^54.0.10`
+- **Framework**: React Native `0.86.3`, Expo SDK `^57.0.17`
 - **Navigation & Routing**: `expo-router` `~6.0.8` (file-based routing with typed routes enabled)
-- **Language**: TypeScript `~5.9.2`
+- **Language**: TypeScript `~6.0.3`
 - **Local Persistence**: `@react-native-async-storage/async-storage` `2.2.0`
 - **Mapping**:
-  - Native (iOS/Android): `react-native-maps` `1.20.1`
-  - Web: SVG path rendering fallback
+  - Native (iOS/Android): `react-native-webview` hosting Leaflet.js with OpenStreetMap raster tiles
+  - Web: Leaflet.js with OpenStreetMap raster tiles
 - **Data Visualization / Charts**: `react-native-gifted-charts` `^1.4.78`, `react-native-svg` `15.12.1`
 - **Icons & Styling**: `lucide-react-native` `^0.544.0`, `@expo-google-fonts/inter`
-- **Location & Background Services**: `expo-location` `~19.0.8` (configured with Android foreground service & notifications)
+- **Location**: `expo-location` `~57.0.14`
+- **Background configuration**: Android location permissions and foreground-service notification settings are declared in `app.json`; the current recorder uses foreground location watching rather than a registered Expo background task.
 
 ---
 
@@ -43,8 +44,8 @@ Bike-android/
 │   │   ├── ConfirmModal.tsx       # Reusable modal for ride stop/save confirmations
 │   │   ├── MetricCard.tsx         # Metric display box (value, unit, label)
 │   │   ├── RouteMap.d.ts          # TypeScript declaration for platform-split RouteMap
-│   │   ├── RouteMap.native.tsx    # Native MapView with dark map styling & polyline
-│   │   └── RouteMap.web.tsx       # Web SVG/canvas map simulator with grid & path
+│   │   ├── RouteMap.native.tsx    # Native WebView hosting Leaflet with route and location markers
+│   │   └── RouteMap.web.tsx       # Web Leaflet map with route and location markers
 │   ├── hooks/
 │   │   └── useRideRecorder.ts     # Core hook managing ride recording state & GPS stream
 │   ├── utils/
@@ -99,20 +100,25 @@ Bike-android/
 
 ### A. Live Tracking Engine (`src/hooks/useRideRecorder.ts`)
 - Manages recording lifecycle: `start()`, `pause()`, `resume()`, `stop()`, `finalizeStats()`, `reset()`.
+- On web, it uses `createMockLocationWatcher()` to simulate GPS movement. On native platforms, it requests foreground location permission and subscribes with `Location.watchPositionAsync()`.
 - **GPS Jitter Filtering**:
   - Ignores location updates where accuracy exceeds `ACCURACY_THRESHOLD_M = 20` meters.
   - Ignores movements shorter than `MIN_MOVEMENT_M = 3` meters calculated via the Haversine formula (`src/utils/geo.ts`).
 - **Telemetry Calculation**: Continuously updates instantaneous speed (km/h), moving duration timer, total distance (km), average speed, and maximum recorded speed.
+- The moving-time timer advances while the recorder is in the `recording` state and stops while paused.
+- The current implementation does not register an Expo background task with `Location.startLocationUpdatesAsync()`. The declared Android foreground-service configuration does not by itself provide full tracking after the app process is terminated.
 
 ### B. Route Mapping (`src/components/RouteMap.*`)
-- **Native (`RouteMap.native.tsx`)**: Uses `react-native-maps` `MapView` and `Polyline` with custom dark styling, dynamic delta calculation based on bounding boxes, and active location tracking (`follow`).
-- **Web (`RouteMap.web.tsx`)**: Computes SVG coordinates relative to the track's bounding box and renders an SVG polyline on a grid background.
+- Native mapping is implemented with `react-native-webview`, hosting Leaflet.js and OpenStreetMap raster tiles. The WebView receives route, user-location, start/finish, and recenter commands through a JavaScript bridge.
+- Web mapping uses Leaflet.js with OpenStreetMap raster tiles.
+- Both implementations support the dark application theme, lime route styling, current-location indicators, and start/finish markers where applicable.
 
 ### C. Screens (`app/`)
 1. **Live Recording Screen (`app/(tabs)/index.tsx`)**:
    - Live map view on top, primary speed gauge (large numerical display) and metrics grid below.
    - Start, Pause, Resume, and Stop/Save buttons with `ConfirmModal`.
    - Minimum threshold verification (at least 2 points and > 0.01 km) before saving.
+   - A locate/recenter control uses the latest recorded point or the current preview location.
 2. **History Screen (`app/(tabs)/history.tsx`)**:
    - Total statistics header (total rides count, cumulative distance, total moving time).
    - FlatList of rides with pull-to-refresh and swipeable/clickable delete action.
@@ -126,6 +132,8 @@ Bike-android/
 ### D. Data Storage (`src/utils/storage.ts`)
 - Uses `@react-native-async-storage/async-storage` under the storage key `biketracker.rides.v1`.
 - Methods: `loadRides()`, `loadRide(id)`, `saveRide(ride)`, `deleteRide(id)`, `makeRideId()`.
+- History lists load summaries without track data; the detailed ride screen loads the complete ride when opened.
+- Storage currently assumes valid JSON matching the `Ride` shape and does not perform runtime schema validation.
 
 ---
 
@@ -134,6 +142,7 @@ Bike-android/
 - **Android**:
   - Permissions: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `WAKE_LOCK`.
   - Foreground Service: Notification configured with title *"BikeTracker is recording your ride"* and accent color `#84CC16`.
+  - These settings declare the required Android permissions and notification metadata, but the current recorder still uses `watchPositionAsync()` and does not include a registered Expo background location task.
 - **iOS**:
   - Permissions: `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription`.
   - Background Modes: `["location", "fetch"]`.
