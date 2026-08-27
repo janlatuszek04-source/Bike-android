@@ -15,6 +15,7 @@ This document records technical problems identified during development and the s
 | **3** | **Unreadable Telemetry Graph** | Graph had overlapping text blocks, raw second intervals, and lacked metric downsampling. | Refactored `app/ride/[id].tsx` with distance-based X-axis (km), stride formatting, and structured Telemetry Analysis cards. | ✅ **Resolved** |
 | **4** | **Android Expo Go Map Black Screen & Flickering** | 1. Missing Google Maps API key in `app.json`.<br>2. Controlled `region` prop churn destroying camera on every GPS tick.<br>3. Fabric SurfaceView z-fighting in Expo Go. | **Implemented Strategy A**: Unified cross-platform Leaflet + OpenStreetMap engine in `src/components/RouteMap.native.tsx` via `react-native-webview`. Uses `injectJavaScript` action bridge for 60 FPS smooth panning with zero Google Cloud API keys needed. | ✅ **Resolved** |
 | **5** | **Missing Manual GPS Locate Me Button & Pre-Start Centering** | No one-time geolocation query in idle mode; missing floating locate button and imperative fly-to bridge action. | Added `getCurrentLocation()` in `locationService.ts`, auto-mount geolocation in `useRideRecorder.ts`, `RECENTER_ON_LOCATION` bridge action (`map.flyTo`), and discreet bottom-right circular button (`LocateFixed`). | ✅ **Resolved** |
+| **6** | **Abrupt Single-Frame Map Flight** | Unconfigured `flyTo` easing options and missing parabolic altitude curvature. | Implemented adaptive distance-scaled bell-curve flight ($v(t) = V_{\max}\sin^2(\frac{\pi t}{T})$) with parabolic zoom-out / zoom-in arch (`easeLinearity: 0.2`, `duration: 0.8-1.5s`). | ✅ **Resolved** |
 
 ---
 
@@ -267,7 +268,7 @@ locateBtn: {
 
 ---
 
-## 4. Active Problem: Abrupt Single-Frame Map Flight (Bell Curve Easing & Parabolic Altitude Arch)
+## 4. [Resolved] Abrupt Single-Frame Map Flight (Bell Curve Easing & Parabolic Altitude Arch)
 
 ### 4.1 Problem Statement
 When triggering the manual "Locate Me" re-centering action from a distant location (e.g. initial launch from Kraków to user's real city, or when exploring the map), the camera transition currently feels like a rigid, single-frame snap or abrupt teleportation:
@@ -410,9 +411,9 @@ useEffect(() => {
 ---
 
 ### 4.6 Verification & QA Checklist
-
-- [ ] **Long-Distance Flight ($D > 2\text{km}$)**: Camera performs a swift $1.5\text{s}$ flight, pulling back to a high altitude (zoom-out) mid-flight and descending (zoom-in) smoothly into zoom 16 over the user's location.
-- [ ] **Short-Distance Recenter ($D < 300\text{m}$)**: Re-centering smoothly glides within $0.8\text{s}$ without unnecessary disorienting zoom out.
-- [ ] **Bell-Curve Acceleration**: Speed visibly accelerates smoothly from 0, reaches top speed in the middle, and decelerates gently to a stop.
-- [ ] **Rapid Multi-Tap Resilience**: Tapping the button multiple times cleanly restarts flight from the current camera position without flickering or map tearing.
-- [ ] **Marker Accuracy**: Live radar marker stays pinned to the target coordinates throughout and after the flight.
+ 
+- [x] **Long-Distance Flight ($D > 2\text{km}$)**: Camera performs a swift $1.5\text{s}$ flight, pulling back to a high altitude (zoom-out) mid-flight and descending (zoom-in) smoothly into zoom 16 over the user's location.
+- [x] **Short-Distance Recenter ($D < 300\text{m}$)**: Re-centering smoothly glides within $0.8\text{s}$ without unnecessary disorienting zoom out.
+- [x] **Bell-Curve Acceleration**: Speed visibly accelerates smoothly from 0, reaches top speed in the middle, and decelerates gently to a stop.
+- [x] **Rapid Multi-Tap Resilience**: Tapping the button multiple times cleanly restarts flight from the current camera position without flickering or map tearing.
+- [x] **Marker Accuracy**: Live radar marker stays pinned to the target coordinates throughout and after the flight.
