@@ -421,7 +421,7 @@ useEffect(() => {
 
 ---
 
-## 5. [Resolved] Android System Navigation Bar & Status Bar Obstruction (Sticky Immersive Mode)
+## 5. w (Sticky Immersive Mode)
 
 > **Resolution status:** Resolved. The immersive fullscreen implementation is active and the reported Android system-bar obstruction has been successfully fixed. The details below remain as the technical history and implementation record.
 
