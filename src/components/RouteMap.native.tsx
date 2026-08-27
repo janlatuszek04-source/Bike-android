@@ -218,7 +218,22 @@ function generateLeafletHtml(initialLat: number, initialLon: number): string {
             startMarker = L.marker([p.start.lat, p.start.lon], { icon: startIcon }).addTo(map);
             finishMarker = L.marker([p.finish.lat, p.finish.lon], { icon: finishIcon }).addTo(map);
           } else if (action.type === 'RECENTER_ON_LOCATION') {
-            map.flyTo([p.lat, p.lon], 16, { animate: true, duration: 0.8 });
+            var targetLatLng = L.latLng(p.lat, p.lon);
+            var currentCenter = map.getCenter();
+            var distanceMeters = currentCenter.distanceTo(targetLatLng);
+
+            // Compute adaptive flight parameters
+            var duration = distanceMeters > 2000 ? 1.5 : (distanceMeters > 300 ? 1.2 : 0.8);
+            var targetZoom = 16;
+
+            map.stop(); // Cancel any ongoing flight/pan
+            map.flyTo(targetLatLng, targetZoom, {
+              animate: true,
+              duration: duration,
+              easeLinearity: 0.2,
+              noMoveStart: false
+            });
+
             if (!userMarker) {
               var liveIcon = L.divIcon({
                 className: 'custom-live-marker-container',
@@ -226,9 +241,9 @@ function generateLeafletHtml(initialLat: number, initialLon: number): string {
                 iconSize: [16, 16],
                 iconAnchor: [8, 8]
               });
-              userMarker = L.marker([p.lat, p.lon], { icon: liveIcon }).addTo(map);
+              userMarker = L.marker(targetLatLng, { icon: liveIcon }).addTo(map);
             } else {
-              userMarker.setLatLng([p.lat, p.lon]);
+              userMarker.setLatLng(targetLatLng);
             }
           }
         };
